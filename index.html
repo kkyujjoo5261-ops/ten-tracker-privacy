@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Ten Tracker - 모바일 퍼즐 게임</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;850;900&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; font-family: 'Inter', sans-serif;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+            background-color: #0f172a;
+        }
+        canvas { display: block; touch-action: none; }
+        @keyframes pulse-red {
+            0%, 100% { background-color: rgba(239, 68, 68, 1); box-shadow: 0 0 10px rgba(239, 68, 68, 0.8); }
+            50% { background-color: rgba(185, 28, 28, 1); box-shadow: 0 0 20px rgba(239, 68, 68, 1); }
+        }
+        .timer-warning { animation: pulse-red 0.6s infinite alternate; }
+        @keyframes fever-glow {
+            0%, 100% { border-color: #f59e0b; box-shadow: 0 0 25px rgba(245, 158, 11, 0.6); }
+            50% { border-color: #ec4899; box-shadow: 0 0 35px rgba(236, 72, 153, 0.8); }
+        }
+        .fever-active { animation: fever-glow 0.4s infinite alternate; }
+        @keyframes fever-pulse-bg {
+            0%, 100% { background-color: rgba(245, 158, 11, 0.12); }
+            50% { background-color: rgba(225, 29, 72, 0.22); }
+        }
+        .fever-bg-pulse { animation: fever-pulse-bg 0.3s infinite alternate; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-[100dvh] w-screen flex flex-col justify-between select-none">
+
+    <header id="game-header" class="px-4 py-3 bg-slate-800/90 backdrop-blur border-b border-slate-700 flex items-center justify-between z-10 hidden shrink-0">
+        <div class="flex items-center space-x-3">
+            <div>
+                <div class="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">SCORE</div>
+                <div class="flex items-baseline space-x-1.5">
+                    <div id="score-display" class="text-2xl font-black text-white">0</div>
+                    <div id="combo-badge" class="text-xs font-black text-amber-400 opacity-0 transition-all duration-200 transform scale-75">x1 COMBO</div>
+                </div>
+            </div>
+            <div id="mode-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">🎮 클래식</div>
+        </div>
+        
+        <!-- 피버 인디케이터 -->
+        <div id="fever-banner" class="hidden flex flex-col items-center justify-center px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 text-white font-black text-xs shadow-lg animate-pulse">
+            <div class="flex items-center space-x-1">
+                <span>⚡ FEVER 2X!</span>
+                <span id="fever-timer-text" class="text-[10px] font-mono text-amber-200">6.0s</span>
+            </div>
+            <div class="w-24 bg-black/30 h-1.5 rounded-full mt-0.5 overflow-hidden">
+                <div id="fever-bar-fill" class="bg-yellow-300 h-full w-full transition-all duration-75"></div>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button onclick="playSound('click'); pauseGame()" class="w-10 h-10 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-lg active:scale-95 transition cursor-pointer">⏸</button>
+            <button onclick="playSound('click'); openSettings()" class="w-10 h-10 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-lg active:scale-95 transition cursor-pointer">⚙</button>
+        </div>
+    </header>
+
+    <div id="timer-bar-wrapper" class="w-full bg-slate-800 h-2.5 hidden shrink-0 relative overflow-hidden">
+        <div id="timer-fill" class="bg-indigo-500 h-full transition-all duration-300 w-full"></div>
+    </div>
+
+    <div id="ai-status-bar" class="w-full bg-slate-800/90 border-b border-slate-700 px-4 py-1.5 hidden flex justify-between items-center text-xs shrink-0 z-10">
+        <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span id="ai-name-display" class="font-bold text-amber-300">인공지능 라이벌</span>
+        </div>
+        <div class="font-mono font-black text-white">상대 점수: <span id="ai-score-display" class="text-rose-400">0</span>점</div>
+    </div>
+
+    <main class="flex-1 flex items-center justify-center p-2 relative overflow-hidden w-full h-full">
+        <div id="board-container" class="relative w-full max-w-md aspect-[8/14] max-h-full bg-slate-800/90 rounded-2xl border border-slate-700 p-2 shadow-2xl flex items-center justify-center hidden">
+            <canvas id="game-canvas" class="w-full h-full rounded-xl cursor-pointer"></canvas>
+            <div id="floating-text-container" class="absolute inset-0 pointer-events-none overflow-hidden flex items-center justify-center"></div>
+        </div>
+    </main>
+
+    <div id="modal-main" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative">
+            
+            <!-- 프로필 아이콘 버튼 (오른쪽 상단) -->
+            <button onclick="playSound('click'); openProfileModal()" class="absolute top-5 right-5 w-10 h-10 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-lg active:scale-95 transition cursor-pointer shadow-md" title="내 프로필">
+                👤
+            </button>
+
+            <div id="user-profile-badge" class="mb-3 text-xs text-indigo-400 font-bold flex justify-between items-center bg-slate-800/60 px-3 py-1.5 rounded-xl border border-slate-700/50 mr-12">
+                <span id="account-status">👤 게스트 접속 중</span>
+                <span id="user-rp-display" class="text-amber-400 font-black">RP 600</span>
+            </div>
+
+            <h1 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-amber-300 tracking-tight mb-1">TEN TRACKER</h1>
+            <p class="text-xs text-slate-400 mb-5">스피디하게 연결해 콤보와 피버를 터뜨리세요!</p>
+
+            <div class="space-y-2.5 mb-4">
+                <button onclick="playSound('click'); showCategory('solo')" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 active:scale-98 transition cursor-pointer flex items-center justify-center space-x-2">
+                    <span>👤 혼자하기</span>
+                </button>
+                <button onclick="playSound('click'); openDailySelect()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/30 active:scale-98 transition cursor-pointer flex items-center justify-center space-x-2">
+                    <span>📅 오늘의 도전</span>
+                </button>
+                <button onclick="playSound('click'); showCategory('battle')" class="w-full py-3.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl shadow-lg shadow-amber-600/30 active:scale-98 transition cursor-pointer flex items-center justify-center space-x-2">
+                    <span>⚔️ 대결하기</span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-3 gap-1.5">
+                <button onclick="playSound('click'); openAchievementsModal()" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] rounded-xl transition cursor-pointer">🎖️ 업적/칭호</button>
+                <button onclick="playSound('click'); openAuthModal()" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] rounded-xl transition cursor-pointer">👤 계정관리</button>
+                <button onclick="playSound('click'); openSettings()" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] rounded-xl transition cursor-pointer">⚙ 설정</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-solo-select" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h2 class="text-xl font-bold text-center text-white mb-4">혼자하기 모드 선택</h2>
+            <div class="space-y-3 mb-6">
+                <div class="flex items-center space-x-2">
+                    <button onclick="playSound('click'); openRuleInfo('classic')" class="flex-1 p-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-left shadow-lg active:scale-98 transition cursor-pointer">
+                        <div class="font-bold text-sm">🎮 클래식 모드</div>
+                        <div class="text-[10px] text-indigo-200 mt-0.5">12x7 그리드 / 음수(-1~-5) 포함 전략</div>
+                    </button>
+                    <button onclick="playSound('click'); openRuleInfo('classic')" class="w-12 h-14 bg-slate-800 hover:bg-slate-700 rounded-2xl flex items-center justify-center text-lg active:scale-98 transition cursor-pointer">ℹ️</button>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="playSound('click'); openRuleInfo('easy')" class="flex-1 p-3.5 bg-rose-500 hover:bg-rose-400 text-white rounded-2xl text-left shadow-lg active:scale-98 transition cursor-pointer">
+                        <div class="font-bold text-sm">🎈 이지 모드</div>
+                        <div class="text-[10px] text-rose-100 mt-0.5">10x6 그리드 / 1~9 양수 전용 모드</div>
+                    </button>
+                    <button onclick="playSound('click'); openRuleInfo('easy')" class="w-12 h-14 bg-slate-800 hover:bg-slate-700 rounded-2xl flex items-center justify-center text-lg active:scale-98 transition cursor-pointer">ℹ️</button>
+                </div>
+            </div>
+            <button onclick="playSound('click'); backToMain()" class="w-full py-3 bg-slate-800 text-slate-300 font-semibold rounded-2xl transition cursor-pointer">뒤로 가기</button>
+        </div>
+    </div>
+
+    <div id="modal-battle-select" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <h2 class="text-xl font-bold text-center text-white mb-2">⚔️ 대결하기 모드</h2>
+            <button onclick="playSound('click'); startAiBattle()" class="w-full p-4 bg-gradient-to-r from-amber-500 to-rose-600 text-white rounded-2xl text-left shadow-lg active:scale-98 transition cursor-pointer">
+                <div class="font-black text-base flex justify-between items-center">
+                    <span>🤖 AI와 배틀하기</span>
+                    <span class="text-xs bg-black/20 px-2 py-0.5 rounded">싱글 대전</span>
+                </div>
+                <div class="text-xs text-amber-100 mt-1">인공지능 라이벌과 제한 시간 내 점수 승부!</div>
+            </button>
+            <div class="bg-slate-800/60 p-4 rounded-2xl border border-slate-700/50 space-y-2 text-center opacity-75">
+                <div class="font-bold text-xs text-slate-400">🌐 온라인 실시간 대전 & 친구 친선전</div>
+                <div class="text-[11px] text-amber-400 font-semibold bg-amber-500/10 py-1.5 px-3 rounded-xl border border-amber-500/20">🚧 추후 업데이트 예정 기능입니다!</div>
+            </div>
+            <button onclick="playSound('click'); backToMain()" class="w-full py-3 bg-slate-800 text-slate-300 font-semibold rounded-2xl transition cursor-pointer">뒤로 가기</button>
+        </div>
+    </div>
+
+    <div id="modal-daily-select" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-3.5 text-center">
+            <div class="text-3xl mb-1">📅</div>
+            <h2 class="text-xl font-black text-white">오늘의 도전</h2>
+            <p class="text-xs text-slate-400">매일 전 세계 유저와 동일한 판으로 고득점을 겨루세요!<br><span class="text-emerald-400 text-[11px] font-semibold">(로그인한 유저만 랭킹 등록 가능)</span></p>
+            <div class="space-y-2 pt-2">
+                <button onclick="playSound('click'); openRuleInfo('daily')" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-2xl shadow-lg transition cursor-pointer">🚀 오늘의 도전 시작하기</button>
+                <button onclick="playSound('click'); openDailyLeaderboard()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-sm rounded-2xl transition cursor-pointer">🏆 오늘의 랭킹 보기</button>
+            </div>
+            <button onclick="playSound('click'); closeDailySelect()" class="w-full py-2.5 bg-slate-800 text-slate-400 text-xs rounded-2xl transition cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-battle-countdown" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="text-center space-y-3">
+            <div id="countdown-number" class="text-7xl font-black text-amber-400 animate-bounce">3</div>
+            <div class="text-lg font-bold text-white">⚔️ AI 라이벌과의 배틀을 시작합니다!</div>
+        </div>
+    </div>
+
+    <div id="modal-profile" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4 text-center">
+            <div class="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-amber-400 rounded-3xl mx-auto flex items-center justify-center text-3xl shadow-lg mb-1">👑</div>
+            <div>
+                <h2 id="profile-user-id" class="text-xl font-black text-white">게스트</h2>
+                <p id="profile-user-title" class="text-xs text-amber-400 font-bold mt-0.5">칭호 없음</p>
+            </div>
+            <div class="bg-slate-800/70 rounded-2xl p-4 text-xs space-y-2.5 text-slate-200 border border-slate-700/50">
+                <div id="profile-rp-wrapper" class="flex justify-between font-bold"><span>레이팅 (RP)</span><span id="profile-user-rp" class="text-amber-300">600 RP</span></div>
+                <div class="border-t border-slate-700/60 pt-2 space-y-2">
+                    <div class="flex justify-between"><span>클래식 모드 최고 기록</span><span id="profile-best-classic" class="font-mono text-white font-bold">0점</span></div>
+                    <div class="flex justify-between"><span>이지 모드 최고 기록</span><span id="profile-best-easy" class="font-mono text-white font-bold">0점</span></div>
+                    <div class="flex justify-between"><span>오늘의 도전 최고 기록</span><span id="profile-best-daily" class="font-mono text-white font-bold">0점</span></div>
+                </div>
+            </div>
+            <button onclick="playSound('click'); closeProfileModal()" class="w-full py-3 bg-indigo-600 text-white font-bold text-xs rounded-2xl transition cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-achievements" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col justify-between max-h-[85vh]">
+            <h2 class="text-xl font-bold text-white mb-3 text-center">🎖️ 업적 & 칭호 보관함</h2>
+            <div id="achievements-list" class="bg-slate-800/70 rounded-2xl p-3.5 text-xs text-slate-200 space-y-2.5 mb-4 overflow-y-auto border border-slate-700/50"></div>
+            <button onclick="playSound('click'); closeAchievementsModal()" class="w-full py-3 bg-indigo-600 text-white font-bold text-xs rounded-2xl transition cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-daily-leaderboard" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col justify-between max-h-[85vh]">
+            <h2 class="text-xl font-bold text-white mb-1 text-center">🏆 오늘의 도전 랭킹</h2>
+            <p id="leaderboard-date-label" class="text-[10px] text-emerald-400 text-center mb-3 font-mono">2026.10.02</p>
+            <div id="leaderboard-list" class="bg-slate-800/70 rounded-2xl p-3 text-xs text-slate-200 space-y-2 mb-4 overflow-y-auto border border-slate-700/50 min-h-[160px]"></div>
+            <button onclick="playSound('click'); closeDailyLeaderboard()" class="w-full py-3 bg-slate-800 text-slate-300 font-semibold text-xs rounded-2xl transition cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-auth" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-3">
+            <h2 class="text-xl font-bold text-white mb-2 text-center">계정 관리</h2>
+            <div id="auth-form-area" class="space-y-3">
+                <input type="text" id="auth-id" placeholder="아이디" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500">
+                <input type="password" id="auth-pw" placeholder="비밀번호" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500">
+                <div class="flex space-x-2 pt-2">
+                    <button onclick="handleLogin()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer">로그인</button>
+                    <button onclick="handleRegister()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl cursor-pointer">회원가입</button>
+                </div>
+            </div>
+            <div id="auth-logout-area" class="space-y-3 hidden text-center">
+                <p id="logged-in-user-name" class="text-sm font-bold text-indigo-300"></p>
+                <button onclick="handleLogout()" class="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl cursor-pointer">로그아웃</button>
+            </div>
+            <button onclick="closeAuthModal()" class="w-full py-2 bg-slate-800 text-slate-400 text-xs rounded-xl cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-rule-info" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col justify-between max-h-[85vh]">
+            <h3 id="rule-modal-title" class="text-xl font-extrabold text-white mb-3">모드 설명</h3>
+            <div id="rule-modal-content" class="bg-slate-800/70 rounded-2xl p-3.5 text-xs text-slate-200 space-y-2.5 mb-5 border border-slate-700/50"></div>
+            <div class="space-y-2 shrink-0">
+                <button onclick="playSound('click'); confirmStartSelectedMode()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm rounded-2xl shadow-lg transition cursor-pointer">🎮 게임 시작</button>
+                <button onclick="playSound('click'); closeRuleInfo()" class="w-full py-2 bg-slate-800 text-slate-400 text-xs font-semibold rounded-2xl transition cursor-pointer">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-tutorial" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl space-y-4">
+            <div class="w-16 h-16 bg-indigo-600/20 rounded-2xl border border-indigo-500/30 mx-auto flex items-center justify-center text-3xl animate-bounce">👆</div>
+            <h3 class="text-xl font-black text-white">손으로 드래그해 보세요!</h3>
+            <div class="bg-slate-800/70 rounded-2xl p-4 text-xs text-slate-200 space-y-2 text-left border border-slate-700/50">
+                <p>1. 타일들을 연결해 <b class="text-amber-300">합산이 딱 10</b>이 되면 삭제됩니다.</p>
+                <p>2. 음수 타일(-1~-5)을 잘 활용해 넓은 보드를 효율적으로 청소하세요!</p>
+            </div>
+            <button onclick="playSound('click'); startActualGamePlay()" class="w-full py-3.5 bg-indigo-600 text-white font-black text-sm rounded-2xl shadow-lg transition cursor-pointer">🚀 확인! 게임 시작</button>
+        </div>
+    </div>
+
+    <div id="modal-settings" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <h2 class="text-xl font-bold text-white mb-2">설정</h2>
+            <div class="flex items-center justify-between bg-slate-800/50 p-3.5 rounded-2xl">
+                <span class="text-sm font-medium text-slate-300">막힘 시 자동 새로받기</span>
+                <input type="checkbox" id="auto-reset-toggle" onchange="toggleAutoReset(this)" class="w-5 h-5 accent-indigo-600 rounded cursor-pointer">
+            </div>
+            <div class="bg-slate-800/50 p-3.5 rounded-2xl space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-slate-300">배경 음악 (BGM)</span>
+                    <input type="checkbox" id="bgm-toggle" checked onchange="toggleBGM(this)" class="w-5 h-5 accent-indigo-600 rounded cursor-pointer">
+                </div>
+                <input type="range" id="bgm-volume" min="0" max="100" value="65" oninput="updateBgmVolume(this.value)" class="w-full accent-indigo-600 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div class="bg-slate-800/50 p-3.5 rounded-2xl space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-slate-300">효과음 (SFX)</span>
+                    <input type="checkbox" id="sound-toggle" checked onchange="toggleSound(this)" class="w-5 h-5 accent-indigo-600 rounded cursor-pointer">
+                </div>
+                <input type="range" id="sfx-volume" min="0" max="100" value="80" oninput="updateSfxVolume(this.value)" class="w-full accent-indigo-600 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <button onclick="playSound('click'); closeSettings()" class="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl transition cursor-pointer">닫기</button>
+        </div>
+    </div>
+
+    <div id="modal-pause" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl space-y-3">
+            <h2 class="text-2xl font-bold text-white mb-2">일시정지</h2>
+            <p id="pause-warning-text" class="text-[11px] text-amber-400 font-semibold mb-3 hidden">⚠️ AI 배틀 중에는 일시정지 시에도 시간이 계속 소요됩니다!</p>
+            <button onclick="playSound('click'); resumeGame()" class="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl transition cursor-pointer">계속하기</button>
+            <button onclick="playSound('click'); restartGame()" class="w-full py-3 bg-slate-800 text-slate-300 font-semibold rounded-2xl transition cursor-pointer">다시 시작</button>
+            <button onclick="playSound('click'); quitToMenu()" class="w-full py-3 bg-slate-800 text-rose-400 font-semibold rounded-2xl transition cursor-pointer">메인 메뉴로 (포기)</button>
+        </div>
+    </div>
+
+    <div id="modal-stuck" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
+            <div class="text-2xl mb-2">⚠️</div>
+            <h3 class="text-lg font-bold text-white mb-1">더 이상 만들 조합이 없습니다!</h3>
+            <p id="stuck-timer-text" class="text-xs text-indigo-400 font-semibold mb-2">⏱ 5.0초 후 자동 새로받기</p>
+            <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-3 border border-slate-700">
+                <div id="stuck-bar-fill" class="bg-indigo-500 h-full w-full transition-all duration-75"></div>
+            </div>
+            <p id="stuck-penalty-text" class="text-xs text-rose-400 font-bold mb-4">예상 감점: -15점</p>
+            <button onclick="playSound('click'); applyStuckReset()" class="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl mb-3 transition cursor-pointer">새로받기</button>
+            <button onclick="playSound('click'); endGame(false)" class="w-full py-3 bg-slate-800 text-rose-400 font-semibold rounded-2xl transition cursor-pointer">여기서 게임 종료</button>
+        </div>
+    </div>
+
+    <div id="modal-gameover" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
+            <h2 id="gameover-main-title" class="text-2xl font-black text-white mb-1">GAME OVER</h2>
+            <div id="gameover-title-badge" class="inline-block px-3 py-1 rounded-full text-xs font-bold bg-indigo-600 text-white mb-3">👑 연쇄의 마법사</div>
+            
+            <div id="battle-result-card" class="bg-slate-800/80 rounded-2xl p-3.5 mb-4 border border-slate-700 hidden">
+                <div id="battle-outcome-text" class="text-sm font-black text-amber-400 mb-2">🎉 VICTORY! 승리</div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="bg-slate-900/60 p-2 rounded-xl">
+                        <div class="text-[10px] text-slate-400">내 점수</div>
+                        <div id="battle-my-score" class="text-base font-black text-white">0점</div>
+                    </div>
+                    <div class="bg-slate-900/60 p-2 rounded-xl">
+                        <div id="battle-enemy-label" class="text-[10px] text-slate-400">AI 라이벌</div>
+                        <div id="battle-enemy-score" class="text-base font-black text-rose-400">0점</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-3xl font-black text-amber-400 mb-5" id="final-score">0점</div>
+            <div class="bg-slate-800/60 rounded-2xl p-4 text-xs space-y-2 mb-5 text-slate-300">
+                <div class="flex justify-between"><span>최대 타일 연결 수</span><span id="stat-max-chain" class="font-bold text-white">0개</span></div>
+                <div class="flex justify-between"><span>최대 연속 콤보</span><span id="stat-max-combo" class="font-bold text-amber-400">0 COMBO</span></div>
+                <div class="flex justify-between"><span>총 '10' 완성 횟수</span><span id="stat-matches" class="font-bold text-white">0회</span></div>
+                <div class="flex justify-between"><span>RP 레이팅 변동</span><span id="stat-rp-change" class="font-bold text-amber-300">변동 없음</span></div>
+            </div>
+            <button onclick="playSound('click'); restartGame()" class="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl mb-2.5 transition cursor-pointer">다시 플레이</button>
+            <button onclick="playSound('click'); quitToMenu()" class="w-full py-3 bg-slate-800 text-slate-300 font-semibold rounded-2xl transition cursor-pointer">메인 메뉴로</button>
+        </div>
+    </div>
+
+    <footer onclick="triggerEasterEgg()" class="py-2 text-center text-[11px] text-slate-500 font-medium tracking-wide z-10 shrink-0 select-none cursor-pointer hover:text-slate-400 transition">
+        made by 박주혁
+    </footer>
+
+    <script>
+        // --- 사운드 & 오디오 엔진 ---
+        let audioCtx = null;
+        let bgmEnabled = true, soundEnabled = true;
+        let bgmVolume = 0.65, sfxVolume = 0.8;
+        let bgmTimer = null, bgmStep = 0;
+
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) audioCtx = new AudioContext();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        const normalNotes = [220.00, 261.63, 293.66, 329.63, 349.23, 329.63, 293.66, 261.63];
+        const feverNotes = [440.00, 523.25, 587.33, 659.25, 698.46, 783.99, 880.00, 659.25];
+
+        function startBGM() {
+            stopBGM();
+            if (!bgmEnabled || bgmVolume <= 0 || !isPlaying || isPaused) return;
+            bgmStep = 0;
+            const stepInterval = isFever ? 85 : 130;
+            bgmTimer = setInterval(() => {
+                if (!bgmEnabled || bgmVolume <= 0 || !isPlaying || isPaused) return;
+                try {
+                    initAudio();
+                    if (!audioCtx) return;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    const now = audioCtx.currentTime;
+                    const notes = isFever ? feverNotes : normalNotes;
+                    osc.type = isFever ? 'sawtooth' : 'triangle';
+                    osc.frequency.setValueAtTime(notes[bgmStep % notes.length], now);
+                    gain.gain.setValueAtTime((isFever ? 0.14 : 0.09) * bgmVolume, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + (isFever ? 0.07 : 0.11));
+                    osc.start(now); osc.stop(now + (isFever ? 0.07 : 0.11));
+                    bgmStep++;
+                } catch(e) {}
+            }, stepInterval);
+        }
+
+        function stopBGM() { if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; } }
+        function toggleBGM(el) { bgmEnabled = el.checked; bgmEnabled && isPlaying && !isPaused ? startBGM() : stopBGM(); }
+        function updateBgmVolume(val) { bgmVolume = parseFloat(val) / 100; if (bgmEnabled && isPlaying && !isPaused) startBGM(); }
+        function updateSfxVolume(val) { sfxVolume = parseFloat(val) / 100; }
+        function toggleSound(el) { soundEnabled = el.checked; }
+        function triggerHaptic() { if (navigator.vibrate) navigator.vibrate(25); }
+
+        function playSound(type, comboCountParam = 0) {
+            if (!soundEnabled || sfxVolume <= 0) return;
+            try {
+                initAudio();
+                if (!audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+
+                if (type === 'click') {
+                    osc.frequency.setValueAtTime(450, now);
+                    osc.frequency.exponentialRampToValueAtTime(220, now + 0.05);
+                    gain.gain.setValueAtTime(0.12 * sfxVolume, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+                    osc.start(now); osc.stop(now + 0.05);
+                } else if (type === 'select') {
+                    triggerHaptic();
+                    const baseFreq = 440 * Math.pow(1.05946, Math.min(10, comboCountParam * 1.5));
+                    osc.frequency.setValueAtTime(baseFreq, now);
+                    gain.gain.setValueAtTime(0.09 * sfxVolume, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.04);
+                    osc.start(now); osc.stop(now + 0.04);
+                } else if (type === 'match') {
+                    osc.type = 'triangle';
+                    const pitchMultiplier = 1 + Math.min(comboCountParam * 0.08, 0.6);
+                    osc.frequency.setValueAtTime(523.25 * pitchMultiplier, now);
+                    osc.frequency.exponentialRampToValueAtTime(1046.50 * pitchMultiplier, now + 0.18);
+                    gain.gain.setValueAtTime(0.25 * sfxVolume, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.18);
+                    osc.start(now); osc.stop(now + 0.18);
+                } else if (type === 'fever') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.exponentialRampToValueAtTime(1400, now + 0.25);
+                    gain.gain.setValueAtTime(0.35 * sfxVolume, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+                    osc.start(now); osc.stop(now + 0.25);
+                } else if (type === 'gameover') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.linearRampToValueAtTime(100, now + 0.4);
+                    gain.gain.setValueAtTime(0.25 * sfxVolume, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+                    osc.start(now); osc.stop(now + 0.4);
+                }
+            } catch (e) {}
+        }
+
+        // --- 실제 계정, 회원가입 검증 및 프로필 관리 ---
+        let registeredAccounts = JSON.parse(localStorage.getItem('ten_tracker_accounts')) || { 'admin': '1234' };
+        let userAccount = JSON.parse(localStorage.getItem('ten_tracker_user')) || { 
+            id: '게스트', 
+            rp: 600, 
+            equippedTitle: '칭호 없음', 
+            easterEggUnlocked: false,
+            bestClassic: 0,
+            bestEasy: 0,
+            bestDaily: 0
+        };
+
+        function updateAccountUI() {
+            document.getElementById('account-status').innerText = `👤 ${userAccount.id}`;
+            document.getElementById('user-rp-display').innerText = `RP ${userAccount.rp}`;
+            document.getElementById('user-rp-display').classList.toggle('hidden', userAccount.id === '게스트');
+            localStorage.setItem('ten_tracker_user', JSON.stringify(userAccount));
+        }
+
+        function openAuthModal() {
+            document.getElementById('auth-form-area').classList.toggle('hidden', userAccount.id !== '게스트');
+            document.getElementById('auth-logout-area').classList.toggle('hidden', userAccount.id === '게스트');
+            if (userAccount.id !== '게스트') {
+                document.getElementById('logged-in-user-name').innerText = `현재 계정: ${userAccount.id}`;
+            }
+            document.getElementById('modal-auth').classList.remove('hidden');
+        }
+        function closeAuthModal() { document.getElementById('modal-auth').classList.add('hidden'); }
+        
+        function handleLogin() {
+            const id = document.getElementById('auth-id').value.trim();
+            const pw = document.getElementById('auth-pw').value.trim();
+            if (!id || !pw) {
+                alert("아이디와 비밀번호를 모두 입력해주세요.");
+                return;
+            }
+            if (registeredAccounts[id] && registeredAccounts[id] === pw) {
+                userAccount.id = id;
+                updateAccountUI();
+                closeAuthModal();
+                alert(`환영합니다, ${id}님! 로그인되었습니다.`);
+            } else {
+                alert("아이디가 존재하지 않거나 비밀번호가 올바르지 않습니다.");
+            }
+        }
+
+        function handleRegister() {
+            const id = document.getElementById('auth-id').value.trim();
+            const pw = document.getElementById('auth-pw').value.trim();
+            if (!id || !pw) {
+                alert("사용하실 아이디와 비밀번호를 입력해주세요.");
+                return;
+            }
+            if (registeredAccounts[id]) {
+                alert("이미 존재하는 아이디입니다. 다른 아이디를 사용해주세요.");
+                return;
+            }
+            registeredAccounts[id] = pw;
+            localStorage.setItem('ten_tracker_accounts', JSON.stringify(registeredAccounts));
+            userAccount.id = id;
+            updateAccountUI();
+            closeAuthModal();
+            alert(`회원가입 및 자동 로그인 완료! (${id}님)`);
+        }
+
+        function handleLogout() {
+            userAccount.id = '게스트';
+            updateAccountUI();
+            closeAuthModal();
+            alert("로그아웃되었습니다.");
+        }
+
+        // --- 프로필 모달 (게스트 시 레이팅 숨김 적용) ---
+        function openProfileModal() {
+            document.getElementById('profile-user-id').innerText = userAccount.id;
+            document.getElementById('profile-user-title').innerText = userAccount.equippedTitle;
+            document.getElementById('profile-user-rp').innerText = `${userAccount.rp} RP`;
+            document.getElementById('profile-rp-wrapper').classList.toggle('hidden', userAccount.id === '게스트');
+            document.getElementById('profile-best-classic').innerText = `${userAccount.bestClassic}점`;
+            document.getElementById('profile-best-easy').innerText = `${userAccount.bestEasy}점`;
+            document.getElementById('profile-best-daily').innerText = `${userAccount.bestDaily}점`;
+            document.getElementById('modal-profile').classList.remove('hidden');
+        }
+        function closeProfileModal() { document.getElementById('modal-profile').classList.add('hidden'); }
+
+        function triggerEasterEgg() {
+            if (!userAccount.easterEggUnlocked) {
+                userAccount.easterEggUnlocked = true;
+                userAccount.equippedTitle = '🔥 따뜻한 사람';
+                updateAccountUI();
+                alert("🎉 이스터에그 해금! 칭호 '🔥 따뜻한 사람'을 획득하고 자동 착용되었습니다!");
+            }
+        }
+
+        // --- 업적 & 칭호 시스템 (밀레니엄 킹 기준 10,000점으로 상향) ---
+        let savedAchStatuses = JSON.parse(localStorage.getItem('ten_tracker_unlocked_achievements')) || [];
+        const availableAchievements = [
+            { id: 'first_match', title: '🌱 신중한 탐색가', desc: '첫 번째 타일 조합 성공', unlocked: true },
+            { id: 'combo_5', title: '⚡ 쾌속 암산왕', desc: '5연속 콤보 달성', unlocked: false },
+            { id: 'combo_8', title: '🔥 불꽃의 연산가', desc: '8연속 콤보 달성', unlocked: false },
+            { id: 'chain_6', title: '🔗 거대 연결 장인', desc: '6개 이상 타일 동시 연결 성공', unlocked: false },
+            { id: 'classic_pro', title: '👑 연쇄의 마법사', desc: '클래식 모드 350점 이상 달성', unlocked: false },
+            { id: 'classic_god', title: '🌌 클래식 초월자', desc: '클래식 모드 700점 이상 달성', unlocked: false },
+            { id: 'easy_master', title: '🎈 이지 마스터', desc: '이지 모드 400점 이상 달성', unlocked: false },
+            { id: 'score_10000', title: '💎 밀레니엄 킹', desc: '누적 점수 10,000점 이상 달성', unlocked: false },
+            { id: 'easter', title: '🔥 따뜻한 사람', desc: '이스터에그 해금', unlocked: userAccount.easterEggUnlocked }
+        ];
+        savedAchStatuses.forEach(s => {
+            let found = availableAchievements.find(a => a.id === s.id);
+            if (found) found.unlocked = s.unlocked;
+        });
+
+        let cumulativeScoreTotal = parseInt(localStorage.getItem('ten_tracker_cum_score')) || 0;
+
+        function checkAchievements(currScore, currCombo, currChain) {
+            cumulativeScoreTotal += currScore;
+            localStorage.setItem('ten_tracker_cum_score', cumulativeScoreTotal);
+
+            availableAchievements.forEach(ach => {
+                if (!ach.unlocked) {
+                    if (ach.id === 'first_match' && totalMatches >= 1) ach.unlocked = true;
+                    if (ach.id === 'combo_5' && currCombo >= 5) ach.unlocked = true;
+                    if (ach.id === 'combo_8' && currCombo >= 8) ach.unlocked = true;
+                    if (ach.id === 'chain_6' && currChain >= 6) ach.unlocked = true;
+                    if (ach.id === 'classic_pro' && currentMode === 'classic' && currScore >= 350) ach.unlocked = true;
+                    if (ach.id === 'classic_god' && currentMode === 'classic' && currScore >= 700) ach.unlocked = true;
+                    if (ach.id === 'easy_master' && currentMode === 'easy' && currScore >= 400) ach.unlocked = true;
+                    if (ach.id === 'score_10000' && cumulativeScoreTotal >= 10000) ach.unlocked = true;
+                    if (ach.id === 'easter' && userAccount.easterEggUnlocked) ach.unlocked = true;
+                }
+            });
+            localStorage.setItem('ten_tracker_unlocked_achievements', JSON.stringify(availableAchievements.map(a => ({ id: a.id, unlocked: a.unlocked }))));
+        }
+
+        function openAchievementsModal() {
+            const listEl = document.getElementById('achievements-list');
+            listEl.innerHTML = '';
+            availableAchievements.forEach(ach => {
+                let isEquipped = userAccount.equippedTitle === ach.title;
+                let div = document.createElement('div');
+                div.className = `p-3 rounded-xl border flex justify-between items-center ${ach.unlocked ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/40 border-slate-800 opacity-60'}`;
+                div.innerHTML = `
+                    <div>
+                        <div class="font-bold text-white text-xs">${ach.title}</div>
+                        <div class="text-[10px] text-slate-400 mt-0.5">${ach.desc}</div>
+                    </div>
+                    <div>
+                        ${ach.unlocked ? `<button onclick="equipTitle('${ach.title}')" class="px-3 py-1.5 rounded-lg text-[10px] font-bold ${isEquipped ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'} cursor-pointer">${isEquipped ? '착용중' : '착용'}</button>` : '<span class="text-[10px] text-slate-500">잠김</span>'}
+                    </div>
+                `;
+                listEl.appendChild(div);
+            });
+            document.getElementById('modal-achievements').classList.remove('hidden');
+        }
+        function closeAchievementsModal() { document.getElementById('modal-achievements').classList.add('hidden'); }
+        function equipTitle(title) {
+            userAccount.equippedTitle = title;
+            updateAccountUI();
+            openAchievementsModal();
+        }
+
+        // --- 오늘의 도전 글로벌 동기화 랭킹 관리 ---
+        function getTodayDateKey() {
+            const d = new Date();
+            return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+        }
+
+        async function getDailyLeaderboardData() {
+            let key = `ten_tracker_daily_${getTodayDateKey()}`;
+            let localList = JSON.parse(localStorage.getItem(key)) || [];
+            
+            try {
+                let dateId = `tentracker_${getTodayDateKey().replace(/\./g, '')}`;
+                let res = await fetch(`https://api.restful-api.dev/objects?id=${dateId}`);
+                if (res.ok) {
+                    let data = await res.json();
+                    if (data && data.length > 0 && data[0].data && data[0].data.list) {
+                        let remoteList = data[0].data.list;
+                        let mergedMap = {};
+                        [...localList, ...remoteList].forEach(item => {
+                            if (!mergedMap[item.name] || item.score > mergedMap[item.name]) {
+                                mergedMap[item.name] = item.score;
+                            }
+                        });
+                        let mergedList = Object.keys(mergedMap).map(name => ({ name, score: mergedMap[name] }));
+                        mergedList.sort((a, b) => b.score - a.score);
+                        localStorage.setItem(key, JSON.stringify(mergedList));
+                        return mergedList;
+                    }
+                }
+            } catch (e) {
+                console.warn('랭킹 서버 동기화 실패, 로컬 저장소 데이터 사용:', e);
+            }
+            return localList;
+        }
+
+        async function saveDailyScoreToLeaderboard(playerName, finalScore) {
+            if (playerName === '게스트') return; // 게스트는 랭킹 등록 제외
+            let key = `ten_tracker_daily_${getTodayDateKey()}`;
+            let list = JSON.parse(localStorage.getItem(key)) || [];
+            let existing = list.find(item => item.name === playerName);
+            if (existing) {
+                if (finalScore > existing.score) existing.score = finalScore;
+            } else {
+                list.push({ name: playerName, score: finalScore });
+            }
+            list.sort((a, b) => b.score - a.score);
+            localStorage.setItem(key, JSON.stringify(list));
+
+            try {
+                let dateId = `tentracker_${getTodayDateKey().replace(/\./g, '')}`;
+                await fetch('https://api.restful-api.dev/objects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: dateId,
+                        name: dateId,
+                        data: { list: list }
+                    })
+                });
+            } catch (e) {
+                console.warn('온라인 랭킹 등록 실패:', e);
+            }
+        }
+
+        function openDailySelect() { document.getElementById('modal-daily-select').classList.remove('hidden'); }
+        function closeDailySelect() { document.getElementById('modal-daily-select').classList.add('hidden'); }
+
+        async function openDailyLeaderboard() {
+            closeDailySelect();
+            const dateStr = getTodayDateKey();
+            document.getElementById('leaderboard-date-label').innerText = dateStr;
+            const listEl = document.getElementById('leaderboard-list');
+            listEl.innerHTML = '<div class="text-center text-slate-400 py-6 text-xs animate-pulse">🌐 글로벌 랭킹 정보를 불러오는 중...</div>';
+            document.getElementById('modal-daily-leaderboard').classList.remove('hidden');
+
+            let list = await getDailyLeaderboardData();
+            listEl.innerHTML = '';
+            if (!list || list.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-slate-400 py-6 text-xs">아직 등록된 랭킹 기록이 없습니다.<br>오늘의 도전을 완료하고 첫 순위에 올라보세요!</div>';
+            } else {
+                list.forEach((item, idx) => {
+                    let row = document.createElement('div');
+                    row.className = 'flex justify-between items-center py-2 px-3 bg-slate-900/80 rounded-xl border border-slate-700/50 text-xs';
+                    row.innerHTML = `<span class="font-bold text-amber-400">#${idx+1} ${item.name}</span><span class="font-mono text-white font-bold">${item.score}점</span>`;
+                    listEl.appendChild(row);
+                });
+            }
+        }
+        function closeDailyLeaderboard() { document.getElementById('modal-daily-leaderboard').classList.add('hidden'); }
+
+        // --- 게임 상태 변수 ---
+        const TOTAL_TIME = 120;
+        let rows = 14, cols = 8;
+        let board = [], selectedIndices = [];
+        let score = 0, remainingSeconds = TOTAL_TIME;
+        let gameTimer = null, stuckTimer = null, stuckTimeLeft = 5.0;
+        let isPlaying = false, isPaused = false, isStuck = false;
+        let currentMode = 'classic';
+        let pendingModeToStart = 'classic';
+        let autoResetOnStuck = false;
+
+        let comboCount = 0, maxCombo = 0, lastMatchTime = 0;
+        let isFever = false, feverInterval = null, feverTimeLeft = 6.0;
+        const FEVER_MAX_TIME = 6.0;
+
+        let screenShakeOffset = { x: 0, y: 0 };
+        let maxChain = 0, totalMatches = 0, negativesUsed = 0;
+
+        // AI 대전 변수
+        let isMultiplay = false;
+        let isAiMatch = false;
+        let aiTimer = null;
+        let enemyScore = 0;
+
+        // 오늘의 도전용 시드 난수 생성기
+        let dailySeed = 12345;
+        function seedRandom() {
+            let x = Math.sin(dailySeed++) * 10000;
+            return x - Math.floor(x);
+        }
+
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function showCategory(cat) {
+            document.getElementById('modal-main').classList.add('hidden');
+            if (cat === 'solo') document.getElementById('modal-solo-select').classList.remove('hidden');
+            else if (cat === 'battle') document.getElementById('modal-battle-select').classList.remove('hidden');
+        }
+        function backToMain() {
+            document.getElementById('modal-solo-select').classList.add('hidden');
+            document.getElementById('modal-battle-select').classList.add('hidden');
+            document.getElementById('modal-main').classList.remove('hidden');
+        }
+
+        function openRuleInfo(mode) {
+            pendingModeToStart = mode;
+            isMultiplay = false; isAiMatch = false;
+            document.getElementById('modal-daily-select').classList.add('hidden');
+            document.getElementById('modal-solo-select').classList.add('hidden');
+
+            const titleEl = document.getElementById('rule-modal-title');
+            const contentEl = document.getElementById('rule-modal-content');
+            if (mode === 'classic') {
+                titleEl.innerText = '🎮 클래식 모드 규칙';
+                contentEl.innerHTML = `
+                    <p>⏱️ <b>제한시간:</b> 120초</p>
+                    <p>🔢 <b>타일 범위:</b> 12x7 그리드 / 음수(-1~-5) 포함</p>
+                    <p>🌟 <b>보너스 점수:</b> 대형 체인 및 연속 콤보 보너스 적용</p>
+                    <p>⚡ <b>피버 모드:</b> 1.8초 내 연속 5콤보 시 6초간 2배 득점</p>
+                `;
+            } else if (mode === 'easy') {
+                titleEl.innerText = '🎈 이지 모드 규칙';
+                contentEl.innerHTML = `
+                    <p>⏱️ <b>제한시간:</b> 120초</p>
+                    <p>🎈 <b>타일 범위:</b> 10x6 그리드 / 1~9 양수 전용 (판 전체 합산 10의 배수 보장)</p>
+                    <p>🎉 <b>올클리어:</b> 모든 양수 타일 제거 시 +25점 보너스</p>
+                `;
+            } else {
+                titleEl.innerText = '📅 오늘의 도전';
+                contentEl.innerHTML = `
+                    <p>⏱️ <b>제한시간:</b> 120초</p>
+                    <p>🏆 <b>특징:</b> 매일 전 세계 유저와 동일한 고정 시드 판으로 경쟁 (로그인 필요)</p>
+                `;
+            }
+            document.getElementById('modal-rule-info').classList.remove('hidden');
+        }
+        function closeRuleInfo() { document.getElementById('modal-rule-info').classList.add('hidden'); }
+        
+        function confirmStartSelectedMode() { 
+            closeRuleInfo(); 
+            startGame(pendingModeToStart); 
+            startActualGamePlay(); 
+        }
+
+        function startAiBattle() {
+            document.getElementById('modal-battle-select').classList.add('hidden');
+            const countdownModal = document.getElementById('modal-battle-countdown');
+            const numEl = document.getElementById('countdown-number');
+            countdownModal.classList.remove('hidden');
+            
+            let count = 3;
+            numEl.innerText = count;
+            
+            let timer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    numEl.innerText = count;
+                    playSound('click');
+                } else {
+                    clearInterval(timer);
+                    countdownModal.classList.add('hidden');
+                    
+                    isMultiplay = true;
+                    isAiMatch = true;
+                    document.getElementById('ai-status-bar').classList.remove('hidden');
+                    const aiNames = ['퍼즐고수_민준', '텐트래커_지은', '연쇄마스터_서준', '수학천재_하은'];
+                    let aiName = aiNames[Math.floor(Math.random() * aiNames.length)];
+                    document.getElementById('ai-name-display').innerText = `🤖 AI 라이벌: ${aiName}`;
+                    document.getElementById('ai-score-display').innerText = '0';
+                    
+                    startGame('classic');
+                }
+            }, 1000);
+        }
+
+        function openSettings() { document.getElementById('modal-settings').classList.remove('hidden'); }
+        function closeSettings() { document.getElementById('modal-settings').classList.add('hidden'); }
+        function toggleAutoReset(el) { autoResetOnStuck = el.checked; }
+
+        function startGame(mode) {
+            currentMode = mode;
+            rows = currentMode === 'easy' ? 10 : 14;
+            cols = currentMode === 'easy' ? 6 : 8;
+
+            if (currentMode === 'daily') {
+                closeDailySelect();
+                const dKey = getTodayDateKey().replace(/\./g, '');
+                dailySeed = parseInt(dKey, 10) || 20261002;
+            }
+            
+            const container = document.getElementById('board-container');
+            if (container) container.style.aspectRatio = `${cols} / ${rows}`;
+
+            document.getElementById('modal-main').classList.add('hidden');
+            document.getElementById('modal-solo-select').classList.add('hidden');
+            document.getElementById('modal-battle-select').classList.add('hidden');
+            document.getElementById('modal-daily-select').classList.add('hidden');
+            document.getElementById('game-header').classList.remove('hidden');
+            document.getElementById('timer-bar-wrapper').classList.remove('hidden');
+            document.getElementById('board-container').classList.remove('hidden');
+
+            score = 0; enemyScore = 0; remainingSeconds = TOTAL_TIME;
+            comboCount = 0; maxCombo = 0; isFever = false;
+            maxChain = 0; totalMatches = 0; negativesUsed = 0;
+            isPlaying = false; isPaused = false; isStuck = false;
+            selectedIndices = [];
+            
+            document.getElementById('score-display').innerText = '0';
+            updateComboUI();
+
+            const badge = document.getElementById('mode-badge');
+            if (currentMode === 'classic') { badge.innerText = '🎮 클래식'; badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white'; }
+            else if (currentMode === 'easy') { badge.innerText = '🎈 이지'; badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white'; }
+            else { badge.innerText = '📅 오늘의 도전'; badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white'; }
+
+            resizeCanvas();
+            generateBoard();
+
+            document.getElementById('modal-tutorial').classList.remove('hidden');
+        }
+
+        function startActualGamePlay() {
+            document.getElementById('modal-tutorial').classList.add('hidden');
+            isPlaying = true;
+            isPaused = false;
+            startTimer();
+            startBGM();
+            if (isMultiplay && isAiMatch) startAiBotLogic();
+        }
+
+        function startAiBotLogic() {
+            if (aiTimer) clearInterval(aiTimer);
+            aiTimer = setInterval(() => {
+                if (!isPlaying || isPaused) return;
+                let gain = Math.floor(Math.random() * 4) + 2;
+                enemyScore += gain;
+                document.getElementById('ai-score-display').innerText = enemyScore;
+            }, 2200);
+        }
+
+        // --- 타일 생성 및 이지 모드 합산 10 보장 ---
+        function getRandomTileValue() {
+            const rand = (currentMode === 'daily') ? seedRandom() : Math.random();
+            if (currentMode === 'easy') {
+                if (rand < 0.22) return 1;
+                if (rand < 0.40) return 2;
+                if (rand < 0.55) return 3;
+                if (rand < 0.68) return 4;
+                if (rand < 0.78) return 5;
+                if (rand < 0.86) return 6;
+                if (rand < 0.92) return 7;
+                if (rand < 0.97) return 8;
+                return 9;
+            } else {
+                const isNegative = rand < 0.18;
+                if (isNegative) {
+                    const w = (currentMode === 'daily') ? seedRandom() : Math.random();
+                    if (w < 0.35) return -1;
+                    if (w < 0.60) return -2;
+                    if (w < 0.80) return -3;
+                    if (w < 0.92) return -4;
+                    return -5;
+                } else {
+                    const w = (currentMode === 'daily') ? seedRandom() : Math.random();
+                    if (w < 0.22) return 1;
+                    if (w < 0.40) return 2;
+                    if (w < 0.55) return 3;
+                    if (w < 0.68) return 4;
+                    if (w < 0.78) return 5;
+                    if (w < 0.86) return 6;
+                    if (w < 0.92) return 7;
+                    if (w < 0.97) return 8;
+                    return 9;
+                }
+            }
+        }
+
+        function generateBoard() {
+            board = [];
+            let idCounter = 0;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    board.push({ id: idCounter++, row: r, col: c, value: getRandomTileValue(), cleared: false });
+                }
+            }
+            if (currentMode === 'easy') adjustBoardSumToMultipleOfTen();
+            drawBoard();
+            scheduleNoMoreMovesCheck();
+        }
+
+        function adjustBoardSumToMultipleOfTen() {
+            let sum = board.reduce((acc, t) => acc + (t.cleared || t.value < 0 ? 0 : t.value), 0);
+            let remainder = ((sum % 10) + 10) % 10;
+            if (remainder === 0) return;
+            let targetDiff = 10 - remainder;
+            for (let tile of board) {
+                if (!tile.cleared && tile.value > 0 && tile.value + targetDiff <= 9) {
+                    tile.value += targetDiff;
+                    return;
+                }
+            }
+            for (let tile of board) {
+                if (!tile.cleared && tile.value > 0 && tile.value - remainder >= 1) {
+                    tile.value -= remainder;
+                    return;
+                }
+            }
+        }
+
+        function getTileColor(val) {
+            if (val < 0) return '#475569';
+            const colors = {
+                1: '#FDE047', 2: '#FDBA74', 3: '#FB7185',
+                4: '#F472B6', 5: '#34D399', 6: '#60A5FA',
+                7: '#A78BFA', 8: '#2DD4BF', 9: '#E2E8F0'
+            };
+            return colors[val] || '#334155';
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('board-container');
+            if (!container) return;
+            canvas.width = Math.max(50, container.clientWidth - 16);
+            canvas.height = Math.max(50, container.clientHeight - 16);
+            drawBoard();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (board.length === 0) return;
+
+            ctx.save();
+            ctx.translate(screenShakeOffset.x, screenShakeOffset.y);
+
+            const cellW = canvas.width / cols;
+            const cellH = canvas.height / rows;
+
+            if (selectedIndices.length >= 2) {
+                ctx.beginPath();
+                ctx.strokeStyle = isFever ? '#F59E0B' : '#6366F1';
+                ctx.lineWidth = isFever ? 6 : 4;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                for (let i = 0; i < selectedIndices.length; i++) {
+                    let idx = selectedIndices[i];
+                    let r = Math.floor(idx / cols), c = idx % cols;
+                    let x = c * cellW + cellW / 2, y = r * cellH + cellH / 2;
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            board.forEach((tile, index) => {
+                let r = tile.row, c = tile.col;
+                let x = c * cellW + 2, y = r * cellH + 2;
+                let w = cellW - 4, h = cellH - 4;
+
+                if (tile.cleared) {
+                    ctx.fillStyle = 'rgba(30, 41, 59, 0.15)';
+                    ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
+                    return;
+                }
+
+                let isSelected = selectedIndices.includes(index);
+                ctx.fillStyle = isSelected ? (isFever ? 'rgba(245, 158, 11, 0.45)' : 'rgba(99, 102, 241, 0.35)') : getTileColor(tile.value);
+                ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
+
+                if (isSelected) {
+                    ctx.strokeStyle = isFever ? '#F59E0B' : '#6366F1';
+                    ctx.lineWidth = 2.5; ctx.stroke();
+                }
+
+                ctx.fillStyle = tile.value < 0 ? '#F1F5F9' : '#1E293B';
+                ctx.font = 'bold ' + Math.floor(cellW * 0.45) + 'px Inter';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(tile.value, x + w / 2, y + h / 2);
+            });
+
+            ctx.restore();
+        }
+
+        // --- 터치 및 드래그 핸들러 (되돌리기 Undo Backtracking 지원) ---
+        function getTileIndexAtCoord(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            if (!rect || rect.width === 0) return -1;
+            let x = clientX - rect.left, y = clientY - rect.top;
+            if (x < 0 || x > rect.width || y < 0 || y > rect.height) return -1;
+            let c = Math.floor((x / rect.width) * cols);
+            let r = Math.floor((y / rect.height) * rows);
+            if (r >= 0 && r < rows && c >= 0 && c < cols) return r * cols + c;
+            return -1;
+        }
+
+        let isDragging = false;
+
+        function handleDragStart(e) {
+            if (!isPlaying || isPaused || isStuck) return;
+            initAudio(); isDragging = true;
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            let idx = getTileIndexAtCoord(clientX, clientY);
+            if (idx !== -1 && !board[idx].cleared) {
+                selectedIndices = [idx];
+                playSound('select', comboCount);
+                drawBoard();
+            }
+        }
+
+        function handleDragMove(e) {
+            if (!isDragging || !isPlaying || isPaused || isStuck) return;
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            let idx = getTileIndexAtCoord(clientX, clientY);
+            if (idx === -1) return;
+
+            if (selectedIndices.length > 0) {
+                let lastIdx = selectedIndices[selectedIndices.length - 1];
+                if (idx === lastIdx) return;
+
+                let existingIndex = selectedIndices.indexOf(idx);
+                if (existingIndex !== -1) {
+                    selectedIndices = selectedIndices.slice(0, existingIndex + 1);
+                    playSound('select', comboCount);
+                    drawBoard();
+                    return;
+                }
+
+                if (isAdjacent(lastIdx, idx)) {
+                    selectedIndices.push(idx);
+                    if (!board[idx].cleared) {
+                        playSound('select', comboCount);
+                    }
+                    drawBoard();
+                }
+            }
+        }
+
+        function handleDragEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+            evaluateSelection();
+            selectedIndices = [];
+            drawBoard();
+        }
+
+        function isAdjacent(i1, i2) {
+            let r1 = Math.floor(i1 / cols), c1 = i1 % cols;
+            let r2 = Math.floor(i2 / cols), c2 = i2 % cols;
+            return (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1);
+        }
+
+        canvas.addEventListener('mousedown', handleDragStart);
+        canvas.addEventListener('mousemove', handleDragMove);
+        window.addEventListener('mouseup', handleDragEnd);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleDragStart(e); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleDragMove(e); }, { passive: false });
+        window.addEventListener('touchend', handleDragEnd);
+
+        function evaluateSelection() {
+            if (selectedIndices.length === 0) return;
+            let activeIndices = selectedIndices.filter(idx => !board[idx].cleared);
+            if (activeIndices.length === 0) return;
+
+            let sum = 0, hasNeg = false;
+            activeIndices.forEach(idx => {
+                let val = board[idx].value;
+                sum += val;
+                if (val < 0) hasNeg = true;
+            });
+
+            if (sum === 10) {
+                let now = new Date().getTime();
+                let comboWindow = 1800; // 엄격해진 1.8초 콤보 창
+                if (now - lastMatchTime <= comboWindow) {
+                    comboCount++;
+                } else {
+                    comboCount = 1;
+                }
+                lastMatchTime = now;
+                if (comboCount > maxCombo) maxCombo = comboCount;
+
+                if (comboCount >= 5 && !isFever) {
+                    triggerFeverMode();
+                } else if (isFever) {
+                    feverTimeLeft = Math.min(FEVER_MAX_TIME, feverTimeLeft + 1.0);
+                }
+
+                let count = activeIndices.length;
+                let basePoints = 2;
+                let chainBonus = count >= 6 ? 5 : (count >= 4 ? 2 : 0);
+                let comboBonus = Math.floor(comboCount / 3) * 2;
+                
+                let matchScore = basePoints + chainBonus + comboBonus;
+                if (isFever) matchScore *= 2;
+
+                score += matchScore;
+                totalMatches++;
+                if (count > maxChain) maxChain = count;
+                if (hasNeg) negativesUsed++;
+
+                activeIndices.forEach(idx => board[idx].cleared = true);
+                document.getElementById('score-display').innerText = score;
+                
+                updateComboUI();
+                triggerScreenShake();
+                playSound('match', comboCount);
+
+                let lastIdx = activeIndices[activeIndices.length - 1];
+                let r = Math.floor(lastIdx / cols), c = lastIdx % cols;
+                showCompactBonusPopup(`+${matchScore}`, (c / cols) * 100, (r / rows) * 100);
+
+                checkAchievements(score, maxCombo, maxChain);
+                checkAllClear();
+                scheduleNoMoreMovesCheck();
+            }
+        }
+
+        function updateComboUI() {
+            const badge = document.getElementById('combo-badge');
+            if (!badge) return;
+            if (comboCount > 1) {
+                badge.innerText = `x${comboCount} COMBO`;
+                badge.classList.remove('opacity-0', 'scale-75');
+                badge.classList.add('opacity-100', 'scale-100');
+            } else {
+                badge.classList.add('opacity-0', 'scale-75');
+                badge.classList.remove('opacity-100', 'scale-100');
+            }
+        }
+
+        function triggerFeverMode() {
+            isFever = true;
+            feverTimeLeft = FEVER_MAX_TIME;
+            document.getElementById('fever-banner').classList.remove('hidden');
+            document.getElementById('board-container').classList.add('fever-active');
+            document.body.classList.add('fever-bg-pulse');
+            playSound('fever');
+            startBGM();
+
+            if (feverInterval) clearInterval(feverInterval);
+            let elapsedFever = 0;
+            feverInterval = setInterval(() => {
+                if (!isPlaying || isPaused) return;
+                elapsedFever += 0.05;
+                let drainRate = 1.0 + (elapsedFever * 0.22); // 가속 감소
+                feverTimeLeft -= (0.05 * drainRate);
+
+                const progressPct = Math.max(0, (feverTimeLeft / FEVER_MAX_TIME) * 100);
+                document.getElementById('fever-bar-fill').style.width = `${progressPct}%`;
+                document.getElementById('fever-timer-text').innerText = `${Math.max(0, feverTimeLeft).toFixed(1)}s`;
+
+                if (feverTimeLeft <= 0) {
+                    clearInterval(feverInterval);
+                    feverInterval = null;
+                    isFever = false;
+                    comboCount = 0;
+                    updateComboUI();
+                    document.getElementById('fever-banner').classList.add('hidden');
+                    document.getElementById('board-container').classList.remove('fever-active');
+                    document.body.classList.remove('fever-bg-pulse');
+                    startBGM();
+                }
+            }, 50);
+        }
+
+        function triggerScreenShake() {
+            screenShakeOffset = { x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6 };
+            setTimeout(() => { screenShakeOffset = { x: 0, y: 0 }; drawBoard(); }, 70);
+        }
+
+        function showCompactBonusPopup(text, leftPct, topPct) {
+            const container = document.getElementById('floating-text-container');
+            const el = document.createElement('div');
+            el.innerText = text;
+            el.className = 'absolute font-black text-lg transition-all duration-500 transform -translate-y-2 opacity-100 pointer-events-none drop-shadow-md z-20 text-amber-300';
+            el.style.left = `${Math.min(85, Math.max(10, leftPct))}%`;
+            el.style.top = `${Math.min(85, Math.max(10, topPct))}%`;
+            container.appendChild(el);
+
+            setTimeout(() => {
+                el.style.transform = 'translateY(-45px) scale(1.15)';
+                el.style.opacity = '0';
+            }, 40);
+            setTimeout(() => { el.remove(); }, 600);
+        }
+
+        function checkAllClear() {
+            const positiveTiles = board.filter(t => t.value > 0);
+            if (positiveTiles.length > 0 && positiveTiles.every(t => t.cleared)) {
+                let bonus = (currentMode === 'easy') ? 25 : 50;
+                score += bonus;
+                document.getElementById('score-display').innerText = score;
+                showCompactBonusPopup('🎉 올클리어! +' + bonus, 50, 45);
+                setTimeout(() => generateBoard(), 500);
+            }
+        }
+
+        function scheduleNoMoreMovesCheck() {
+            setTimeout(() => {
+                const remainingPositiveCount = board.filter(t => !t.cleared && t.value > 0).length;
+                if (remainingPositiveCount === 0) return;
+                if (isPlaying && !isPaused && !isStuck && !hasValidMoves()) {
+                    handleStuckBoard();
+                }
+            }, 120);
+        }
+
+        // --- 정밀 경로 탐색 알고리즘 (오탐지 방지 DFS) ---
+        function hasValidMoves() {
+            let activeTiles = board.filter(t => !t.cleared);
+            if (activeTiles.length === 0) return true;
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+            for (let startTile of activeTiles) {
+                let queue = [{
+                    r: startTile.row,
+                    c: startTile.col,
+                    sum: startTile.value,
+                    path: [startTile.row * cols + startTile.col]
+                }];
+                let iterations = 0;
+
+                while (queue.length > 0 && iterations < 350) {
+                    iterations++;
+                    let curr = queue.shift();
+                    if (curr.sum === 10) return true;
+                    if (curr.sum > 25 || curr.path.length >= 8) continue;
+
+                    let r = curr.r, c = curr.c;
+                    for (let d = 0; d < 4; d++) {
+                        let nr = r + dirs[d][0], nc = c + dirs[d][1];
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                            let nidx = nr * cols + nc;
+                            let nextTile = board[nidx];
+                            if (!nextTile.cleared && !curr.path.includes(nidx)) {
+                                queue.push({ r: nr, c: nc, sum: curr.sum + nextTile.value, path: [...curr.path, nidx] });
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function handleStuckBoard() {
+            let positiveRemaining = board.filter(t => !t.cleared && t.value > 0).length;
+            let penalty = (currentMode === 'easy') ? Math.floor(positiveRemaining / 2) : positiveRemaining;
+
+            if (autoResetOnStuck) {
+                score = Math.max(0, score - penalty);
+                document.getElementById('score-display').innerText = score;
+                generateBoard();
+            } else {
+                isStuck = true;
+                stuckTimeLeft = 5.0;
+                document.getElementById('stuck-timer-text').innerText = `⏱ 5.0초 후 자동 새로받기`;
+                document.getElementById('stuck-bar-fill').style.width = '100%';
+                document.getElementById('modal-stuck').classList.remove('hidden');
+
+                if (stuckTimer) clearInterval(stuckTimer);
+                stuckTimer = setInterval(() => {
+                    if (!isPlaying || isPaused) return;
+                    stuckTimeLeft -= 0.1;
+                    let pct = Math.max(0, (stuckTimeLeft / 5.0) * 100);
+                    document.getElementById('stuck-bar-fill').style.width = `${pct}%`;
+                    document.getElementById('stuck-timer-text').innerText = `⏱ ${Math.max(0, stuckTimeLeft).toFixed(1)}초 후 자동 새로받기`;
+
+                    if (stuckTimeLeft <= 0) {
+                        clearInterval(stuckTimer);
+                        stuckTimer = null;
+                        applyStuckReset();
+                    }
+                }, 100);
+            }
+        }
+
+        function applyStuckReset() {
+            if (stuckTimer) { clearInterval(stuckTimer); stuckTimer = null; }
+            let positiveRemaining = board.filter(t => !t.cleared && t.value > 0).length;
+            let penalty = (currentMode === 'easy') ? Math.floor(positiveRemaining / 2) : positiveRemaining;
+            score = Math.max(0, score - penalty);
+            document.getElementById('score-display').innerText = score;
+            isStuck = false;
+            document.getElementById('modal-stuck').classList.add('hidden');
+            generateBoard();
+        }
+
+        function startTimer() {
+            if (gameTimer) clearInterval(gameTimer);
+            gameTimer = setInterval(() => {
+                if (!isPlaying || isPaused) return;
+                if (remainingSeconds > 0) {
+                    remainingSeconds--;
+                    document.getElementById('timer-fill').style.width = `${(remainingSeconds / TOTAL_TIME) * 100}%`;
+                    if (remainingSeconds <= 0) endGame(false);
+                } else {
+                    endGame(false);
+                }
+            }, 1000);
+        }
+
+        function pauseGame() {
+            isPaused = true;
+            stopBGM();
+            document.getElementById('pause-warning-text').classList.toggle('hidden', !isMultiplay);
+            document.getElementById('modal-pause').classList.remove('hidden');
+        }
+        function resumeGame() { isPaused = false; startBGM(); document.getElementById('modal-pause').classList.add('hidden'); }
+        
+        function restartGame() {
+            stopBGM();
+            if (feverInterval) clearInterval(feverInterval);
+            if (aiTimer) clearInterval(aiTimer);
+            document.getElementById('modal-pause').classList.add('hidden');
+            document.getElementById('modal-gameover').classList.add('hidden');
+            document.getElementById('modal-tutorial').classList.add('hidden');
+            startGame(currentMode);
+        }
+
+        function quitToMenu() {
+            if (isPlaying && isMultiplay) {
+                endGame(true);
+                return;
+            }
+            isPlaying = false;
+            stopBGM();
+            if (gameTimer) clearInterval(gameTimer);
+            if (aiTimer) clearInterval(aiTimer);
+
+            document.getElementById('fever-banner').classList.add('hidden');
+            document.getElementById('board-container').classList.remove('fever-active');
+            document.body.classList.remove('fever-bg-pulse');
+            document.getElementById('ai-status-bar').classList.add('hidden');
+            document.getElementById('modal-pause').classList.add('hidden');
+            document.getElementById('modal-gameover').classList.add('hidden');
+            document.getElementById('modal-tutorial').classList.add('hidden');
+            document.getElementById('game-header').classList.add('hidden');
+            document.getElementById('timer-bar-wrapper').classList.add('hidden');
+            document.getElementById('board-container').classList.add('hidden');
+            document.getElementById('modal-main').classList.remove('hidden');
+        }
+
+        function endGame(isForfeit) {
+            isPlaying = false;
+            stopBGM();
+            if (gameTimer) { clearInterval(gameTimer); gameTimer = null; }
+            if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
+
+            document.getElementById('modal-stuck').classList.add('hidden');
+            document.getElementById('modal-pause').classList.add('hidden');
+            playSound('gameover');
+
+            // 최고 기록 갱신 반영
+            if (currentMode === 'classic' && score > userAccount.bestClassic) userAccount.bestClassic = score;
+            if (currentMode === 'easy' && score > userAccount.bestEasy) userAccount.bestEasy = score;
+            if (currentMode === 'daily' && score > userAccount.bestDaily) userAccount.bestDaily = score;
+            updateAccountUI();
+
+            let rpChange = 0;
+            let battleCardEl = document.getElementById('battle-result-card');
+
+            if (isMultiplay) {
+                battleCardEl.classList.remove('hidden');
+                document.getElementById('battle-my-score').innerText = `${score}점`;
+                document.getElementById('battle-enemy-score').innerText = `${enemyScore}점`;
+
+                let win = isForfeit ? false : (score >= enemyScore);
+                if (win) {
+                    document.getElementById('battle-outcome-text').innerText = '🎉 VICTORY! 승리';
+                    document.getElementById('battle-outcome-text').className = 'text-sm font-black text-amber-400 mb-2';
+                } else {
+                    document.getElementById('battle-outcome-text').innerText = '😢 DEFEAT... 패배';
+                    document.getElementById('battle-outcome-text').className = 'text-sm font-black text-rose-400 mb-2';
+                }
+
+                rpChange = win ? (Math.floor(Math.random() * 7) + 17) : -(Math.floor(Math.random() * 7) + 17);
+                userAccount.rp = Math.max(0, userAccount.rp + rpChange);
+                updateAccountUI();
+                document.getElementById('stat-rp-change').innerText = `${rpChange >= 0 ? '+' : ''}${rpChange} RP`;
+            } else {
+                battleCardEl.classList.add('hidden');
+                document.getElementById('stat-rp-change').innerText = '변동 없음';
+                if (currentMode === 'daily') {
+                    saveDailyScoreToLeaderboard(userAccount.id, score);
+                }
+            }
+
+            checkAchievements(score, maxCombo, maxChain);
+            let title = userAccount.equippedTitle !== '칭호 없음' ? userAccount.equippedTitle : '🎯 차분한 탐색가';
+            if (userAccount.easterEggUnlocked) title = '🔥 따뜻한 사람';
+            else if (score >= 700) title = '🌌 클래식 초월자';
+            else if (score >= 350) title = '👑 연쇄의 마법사';
+
+            document.getElementById('final-score').innerText = `${score}점`;
+            document.getElementById('gameover-title-badge').innerText = title;
+            document.getElementById('stat-max-chain').innerText = `${maxChain}개`;
+            document.getElementById('stat-max-combo').innerText = `${maxCombo} COMBO`;
+            document.getElementById('stat-matches').innerText = `${totalMatches}회`;
+
+            document.getElementById('modal-gameover').classList.remove('hidden');
+        }
+
+        updateAccountUI();
+    </script>
+</body>
+</html>
